@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transport Emissions and Charging Points Map</title>
+
+    <script src="https://cdn.anychart.com/releases/8.10.0/js/anychart-bundle.min.js"></script>
+    <script src="https://cdn.anychart.com/releases/8.10.0/js/anychart-map.min.js"></script>
+    <script src="https://cdn.anychart.com/geodata/2.1.0/countries/ireland/ireland.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.3.15/proj4.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f4;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .map-container {
+        width: 100%;
+        height: 625px;
+        margin-top: 20px;
+      }
+      .slider-container {
+        margin: 20px;
+        text-align: center;
+      }
+      #slider {
+        width: 80%;
+      }
+      .budget {
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+      }
+      .graph {
+        margin-top: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Transport Emissions Bar Chart -->
+      <div class="graph">
+        <div id="barChart"></div>
+      </div>
+
+      <!-- Slider for controlling map markers based on emissions -->
+      <div class="slider-container">
+        <input type="range" min="0" max="100" value="0" step="10" id="slider">
+      </div>
+      
+      <!-- Display cost (related to the map) -->
+      <div class="budget">Cost on Budget: €<span id="costValue">0</span></div>
+
+      <!-- Map to show charging points -->
+      <div class="map-container" id="mapContainer"></div>
+    </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        // Initialize the emissions bar chart
+        var emissionsData = [
+          { x: "General Transport", value: 25, fill: "#545454" },
+          { x: "Electric Vehicles", value: 25, fill: "#00BF63" },
+          { x: "Public Transport", value: 25, fill: "#745D3B" },
+          { x: "Charging Points", value: 25, fill: "#FFC001" }
+        ];
+
+        var emissionsBarChart = anychart.column(emissionsData);
+        var series = emissionsBarChart.getSeriesAt(0);
+        if (series) {
+          series.normal().stroke(null);
+        }
+        emissionsBarChart.xAxis().labels().fontSize(7.5);
+        emissionsBarChart.yAxis().labels().fontSize(12.5);
+        emissionsBarChart.barGroupsPadding(0.2);
+        emissionsBarChart.yScale().minimum(0);
+        emissionsBarChart.yScale().maximum(65);
+        emissionsBarChart.container("barChart");
+        emissionsBarChart.background().fill("none");
+        emissionsBarChart.tooltip(false);
+        emissionsBarChart.draw();
+
+        // Initialize the map for charging points
+        var map = anychart.map();
+        map.geoData(anychart.maps.ireland);
+        map.unboundRegions().enabled(true);
+        map.unboundRegions().fill("#606060");
+        map.background().fill("#222222");
+        map.tooltip(false);
+
+        map.container('mapContainer');
+        map.draw();
+
+        var slider = document.getElementById('slider');
+        var budget = document.getElementById('costValue');
+
+        // Update map markers and budget based on slider value
+        function updateMap() {
+          map.removeAllSeries();
+
+          var percentage = slider.value;
+          var dataSet = anychart.data.set();
+          var numOfChargingPoints = Math.round(allChargingPoints.length * (percentage / 100));
+          var selectedData = allChargingPoints.slice(0, numOfChargingPoints);
+          dataSet.data(selectedData);
+
+          var markers = map.marker(dataSet);
+          markers.fill("#FFC001");
+          markers.stroke(null);
+          markers.labels(false);
+          markers.size(3);
+
+          // Update budget based on percentage
+          budget.textContent = (percentage * 3000000).toLocaleString('en-US');
+          map.draw();
+        }
+
+        // Initial call to add markers based on initial slider value
+        updateMap();
+
+        // Update map on slider change
+        slider.addEventListener('input', updateMap);
+
+        // Update emissions bar chart based on slider value
+        function updateChart() {
+          var valueX = slider.value;
+          let newData = [
+            { x: "General Transport", value: 59 - (13 * (valueX / 100)), fill: "#545454" },
+            { x: "Electric Vehicles", value: 23 - (5 * (valueX / 100)), fill: "#00BF63" },
+            { x: "Public Transport", value: 18 - (3 * (valueX / 100)), fill: "#745D3B" },
+            { x: "Charging Points", value: 0 + (13 * (valueX / 100)), fill: "#FFC001" }
+          ];
+          emissionsBarChart.data(newData);
+        }
+
+        slider.addEventListener('input', updateChart);
+      });
+
+      // Charging points data (example coordinates)
+      var allChargingPoints = [
+        { lat: 53.383, long: -6.416 },
+        { lat: 53.357, long: -7.690 },
+        { lat: 53.041, long: -8.173 },
+        { lat: 52.281, long: -8.107 },
+        { lat: 51.930, long: -9.272 },
+        { lat: 52.227, long: -7.075 },
+        { lat: 53.605, long: -9.184 },
+        { lat: 54.149, long: -8.481 },
+        { lat: 54.188, long: -7.009 },
+        { lat: 53.631, long: -7.207 },
+        { lat: 53.225, long: -6.877 }
+      ];
+    </script>
+  </body>
+</html>
