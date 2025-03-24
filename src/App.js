@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Bar, Pie } from "react-chartjs-2";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartOptions, ArcElement } from 'chart.js';
 import ChartAnnotation from 'chartjs-plugin-annotation';
@@ -10,6 +10,12 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,
 const EmissionModel = () => {
   const [sandboxMode, setSandboxMode] = useState(false);
   const [budget] = useState(1016); // Total budget in million €
+  const [showResults, setShowResults] = useState(false);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [password, setPassword] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  
   const [allocations, setAllocations] = useState({
     HeavyRail: 293,
     BusImprovements: 176,
@@ -40,17 +46,17 @@ const EmissionModel = () => {
   // Calculate Number of BEVs based on BEV Grant, capped at 10000 €
   const calculateNumberOfBEVs = () => {
     const cappedBevGrant = Math.min(bevGrants, 10000); // Cap the BEV Grant at 500,000 €
-    const numberOfBevs = (cappedBevGrant / 3500) * 73000/2; // Calculate BEVs
+    const numberOfBevs = (cappedBevGrant / 3500) * 73000; // Calculate BEVs
     return numberOfBevs;
   };
 
   const numberOfBEVs = calculateNumberOfBEVs();
 
   // Calculate the cost for the BEV Grant
-  const bevGrantCost = bevGrants * numberOfBEVs / 1000000; // Convert BEV Grant * Number of BEVs to million €
+  const bevGrantCost = bevGrants * numberOfBEVs / 1000000 / 2; // Convert BEV Grant * Number of BEVs to million € / 2 (not everyone gets the grant)
   
   // Ideal ratio of BEVs to charging points
-  const idealRatio = 36500 / 2400; // 15.21 BEVs per charging point
+  const idealRatio = 67000 / 2400; // 28 BEVs per charging point
   const actualRatio = numberOfBEVs / chargingPoints; // Actual ratio
 
   // Calculate if the current ratio is within 20% of the ideal ratio
@@ -144,8 +150,47 @@ const EmissionModel = () => {
   return sectorEmissions;
 };
 
+const calculateSectorReductions = () => {
+  // Baseline emissions for each sector (this is where emissions would be before reductions)
+  const baselineEmissions = {
+    HeavyRail: 0.13, // Baseline emissions (in Mt CO₂ eq)
+    BusImprovements: 0.40,
+    EvInfrastructure: 6.73,
+    hgv: 2.91,
+    lgv: 1.00,
+    DomesticAviation: 0.02, // No impact
+	Other: 1.99
+  };
+
+  // The impact reduction (in Mt CO₂ eq) for each sector
+  const emissionReductions = {
+    HeavyRail: (allocations.HeavyRail / 293) * (0.13 - 0.05), // Reduction from baseline emissions
+    BusImprovements: (allocations.BusImprovements / 176) * (0.40 - 0.08),
+	
+    // Special formula for EV Infrastructure
+    EvInfrastructure: 6.73 + (4.73 * (Math.exp(-0.0024 * allocations.EvInfrastructure))) * -1,
+    
+    hgv: (allocations.EvInfrastructure / 100) * (2.91 - 2.62),
+    lgv: (allocations.EvInfrastructure / 100) * (1.00 - 0.78),
+    DomesticAviation: 0, // No impact
+  };
+
+  // Now, calculate actual emissions by subtracting the reductions from the baseline emissions
+  const sectorEmissions = {
+    HeavyRail: emissionReductions.HeavyRail,
+    BusImprovements: emissionReductions.BusImprovements,
+    EvInfrastructure: emissionReductions.EvInfrastructure,
+    hgv: emissionReductions.hgv,
+    lgv: emissionReductions.lgv,
+    DomesticAviation: emissionReductions.DomesticAviation,
+  };
+
+  return sectorEmissions;
+};
 
   const sectorImpact = calculateSectorEmissions();
+  
+  const sectorReduction = calculateSectorReductions();
 
   // Pie chart data
   const pieData = {
@@ -167,12 +212,23 @@ const EmissionModel = () => {
 
   // Bar chart data for 2030 Projection
   const barData = {
-    labels: ["2030 Projection"],
+    labels: ["2030 Projection - Your Policies"],
     datasets: [
       {
         label: "Emissions (Mt CO₂ eq)",
         data: [calculateEmissions()],
         backgroundColor: "#f44336",
+      },
+    ],
+  };
+  
+  const barData2 = {
+    labels: ["2030 Projection - Original Policies"],
+    datasets: [
+      {
+        label: "Emissions (Mt CO₂ eq)",
+        data: [13.6],
+        backgroundColor: "#2196f3",
       },
     ],
   };
@@ -226,8 +282,10 @@ const EmissionModel = () => {
 
   // Function to handle slider changes
   const handleSliderChange = (key, value) => {
+	  if (!isSubmitted) {
     const newAllocations = { ...allocations, [key]: value };
     setAllocations(newAllocations);
+	  }
   };
 
   const emissions = calculateEmissions();
@@ -244,6 +302,96 @@ const EmissionModel = () => {
     congestionCharge: "Adjust the congestion charge to reduce emissions by discouraging excessive traffic in urban areas.",
     bevGrants: "Enter the BEV grant amount to reduce emissions by incentivizing the purchase of electric vehicles."
   };
+  
+  const [currentStep, setCurrentStep] = useState(0);
+  const [showPopup, setShowPopup] = useState(false);
+  
+  useEffect(() => {
+    // Check if the user has already submitted the model
+    if (localStorage.getItem("hasSubmitted") === "true") {
+      setPasswordRequired(true);
+    }
+  }, []);
+
+  const handleSubmitProposal = () => {
+	setIsSubmitted(true);
+    setCurrentStep(0);  // Reset step
+    setShowPopup(true);  // Show the first popup
+	// Store submission flag to block refresh retries
+    localStorage.setItem("hasSubmitted", "true");
+    alert("Emissions model submitted! Refreshing will require a password.");
+	setShowResults(true);
+  };
+  
+  const handlePasswordSubmit = () => {
+    if (password === "password123") {
+      localStorage.removeItem("hasSubmitted"); // Reset restriction
+      setIsAuthenticated(true);
+      setPasswordRequired(false);
+      alert("Access granted! You can retry now.");
+    } else {
+      alert("Incorrect password. Try again.");
+    }
+  };
+
+  const handleNextPopup = () => {
+    if (currentStep < Object.keys(allocations).length - 1) {
+      setCurrentStep(currentStep + 1); // Show next policy pop-up
+    } else {
+      setShowPopup(false); // Close all pop-ups when done
+    }
+  };
+
+  const getPopupMessage = (policy) => {
+  const defaultValues = {
+    HeavyRail: 293,
+    BusImprovements: 176,
+    EvInfrastructure: 100,
+    DomesticAviation: 36,
+  };
+  
+  const currentValue = allocations[policy];
+  const defaultValue = defaultValues[policy];
+
+  // Return specific message based on the policy
+  switch (policy) {
+    case 'HeavyRail':
+      if (currentValue === defaultValue) {
+        return `You’ve allocated €${currentValue.toLocaleString()} million to Heavy Rail, which is the default amount. Major projects funded by this investment include the DART+ Programme and MetroLink.`;
+      }
+      return currentValue > defaultValue
+        ? `You’ve allocated more than the default amount (€${defaultValue.toLocaleString()} million) for Heavy Rail. This will expedite the DART+ Programme and MetroLink projects. Perhaps Dublin will one day have a subway in our lifetimes.`
+        : `You’ve allocated less than the default amount (€${defaultValue.toLocaleString()} million) for Heavy Rail. Without this funding, the DART+ Programme will be stifled, preventing 100km of line expansion. The MetroLink will also likely be delayed...again.`;
+
+    case 'BusImprovements':
+      if (currentValue === defaultValue) {
+        return `You’ve allocated €${currentValue.toLocaleString()} million to Bus Improvements, which matches the default allocation. This ensures bus services continue to improve, notably with the BusConnects programme in the Five Cities (Dublin, Cork, Galway, Limerick, Waterford).`;
+      }
+      return currentValue > defaultValue
+        ? `You’ve allocated more than the default amount (€${defaultValue.toLocaleString()} million) for Bus Improvements. This will boost accessibility, service quality, and expedite the move to fully electric buses by 2030.`
+        : `You’ve allocated less than the default amount (€${defaultValue.toLocaleString()} million) for Bus Improvements. The BusConnects programme in the Five Cities (Dublin, Cork, Galway, Limerick, Waterford) will be slower to deploy, and service quality may falter along existing routes.`;
+
+    case 'EvInfrastructure':
+      if (currentValue === defaultValue) {
+        return `You’ve allocated €${currentValue.toLocaleString()} million to Electric Vehicle Infrastructure, which is in line with the current Department strategy. Chargers are expected every 60km on major roads.`;
+      }
+      return currentValue > defaultValue
+        ? `You’ve allocated more than the default amount (€${defaultValue.toLocaleString()} million) for EV Infrastructure. While a boon for current EV drivers and an incentive for prospective EV drivers, the impact on Ireland's energy grid will likely be substaintial to accomodate upwards of 5,000 charging points.`
+        : `You’ve allocated less than the default amount (€${defaultValue.toLocaleString()} million) for EV Infrastructure. The Department's target to have 1 in 3 private cars be EVs by 2030 now seems awfully far-fetched.`;
+
+    case 'DomesticAviation':
+      if (currentValue === defaultValue) {
+        return `You’ve allocated €${currentValue.toLocaleString()} million to Domestic Aviation, which aligns with the default value. This helps maintain domestic flight routes, such as those from Dublin to Shannon, Cork or Knock.`;
+      }
+      return currentValue > defaultValue
+        ? `You’ve allocated more than the default amount (€${defaultValue.toLocaleString()} million) for Domestic Aviation. While this supports the sector, the emissions impact of domestic aviation is negligable at best. The Department of Transport could put the money towards encouraging private airlines like Ryanair to adopt more sustainable practices.`
+        : `You’ve allocated less than the default amount (€${defaultValue.toLocaleString()} million) for Domestic Aviation. While the emissions from Ireland's domestic aviation are negligable at best, the sector still needs funds for maintenance, administration, and promotion of sustainable practices.`;
+
+    default:
+      return "There is no allocation defined for this policy.";
+  }
+};
+
 
   return (
     <div className="container">
@@ -259,6 +407,7 @@ const EmissionModel = () => {
 		{/* Budget Status */}
         <div style={{ marginTop: '10px', fontSize: '18px', color: isOverBudget ? 'red' : 'green' }}>
           {isOverBudget ? '❌ Over Budget' : '✅ Within Budget'}
+          {sandboxMode ? ' - Sandbox Mode On' : ''}
         </div>
 		<br></br>
         {/* Policy Sliders with unique tooltips */}
@@ -274,6 +423,7 @@ const EmissionModel = () => {
               value={allocations[key]}
               onChange={(e) => handleSliderChange(key, parseInt(e.target.value))}
               title={tooltips[key]} // Set unique tooltip
+			  disabled={isSubmitted} // Freezes input when submitted
             />
             €{allocations[key].toLocaleString()} million
           </div>
@@ -314,6 +464,7 @@ const EmissionModel = () => {
             step="1"
             value={congestionCharge}
             onChange={(e) => setCongestionCharge(parseInt(e.target.value))}
+			disabled={isSubmitted} // Freezes input when submitted
           />
         </div>
 
@@ -327,6 +478,7 @@ const EmissionModel = () => {
               step="10"
               value={bevGrants}
               onChange={(e) => setBevGrants(Math.min(10000, Math.max(0, parseInt(e.target.value))))}
+			  disabled={isSubmitted} // Freezes input when submitted
             />
           </label>
         </div>
@@ -339,9 +491,9 @@ const EmissionModel = () => {
 		{/* Display the ratio between BEVs and charging points with the checkmark or X */}
         <div style={{ fontSize: '18px', marginTop: '10px' }}>
           {isIdealRatio ? (
-            <span style={{ color: 'green' }}>✅ Within 20% of ideal Ratio (~15 BEVs per charging point)</span>
+            <span style={{ color: 'green' }}>✅ Within 20% of ideal Ratio (~28 BEVs per charging point)</span>
           ) : (
-            <span style={{ color: 'red' }}>❌ Not within 20% of ideal Ratio (~15 BEVs per charging point)</span>
+            <span style={{ color: 'red' }}>❌ Not within 20% of ideal Ratio (~28 BEVs per charging point)</span>
           )}
         </div>
 
@@ -353,25 +505,69 @@ const EmissionModel = () => {
       </div>
 	  
       {/* Right panel for the charts */}
+	  {showResults && (
       <div className="right-panel">
         {/* Bar Chart - 2030 Projection */}
+        <Bar data={barData2} options={barOptions} />
         <Bar data={barData} options={barOptions} />
 
         {/* Pie Chart - Emissions by Sector */}
         <Pie data={pieData} />
       </div>
+	  )}
 
       {/* Projected Emissions and Target Emissions */}
+	  {showResults && (
       <div className="emissions-summary">
         <h3>Emissions Summary</h3>
-        <p>Projected Emissions: {emissions.toFixed(2)} Mt CO₂ eq</p>
-        <p>Target Emissions (2030): {targetEmissions} Mt CO₂ eq</p>
+        <h4>Projected Emissions: {emissions.toFixed(2)} Mt CO₂ eq</h4>
+        <h4>Target Emissions (2030): {targetEmissions} Mt CO₂ eq</h4>
         {emissions <= targetEmissions ? (
           <p style={{ color: 'green' }}>✅ Successfully under target emissions!</p>
         ) : (
           <p style={{ color: 'red' }}>❌ Still over target emissions!</p>
         )}
+		<h4>Reductions by Sector:</h4>
+		  <ul>
+			{Object.keys(sectorImpact).map((sector) => (
+			  <li key={sector}>
+				<strong>{sector.replace(/([A-Z])/g, " $1")}</strong>: 
+				{sectorReduction[sector].toFixed(2)} Mt CO₂ eq
+			  </li>
+			))}
+		  </ul>
       </div>
+	  )}
+      <div className="submit-button">
+      {passwordRequired && !isAuthenticated ? (
+        <div>
+          <p>Enter the password to retry:</p>
+          <input 
+            type="password" 
+            value={password} 
+            onChange={(e) => setPassword(e.target.value)} 
+          />
+          <button onClick={handlePasswordSubmit}>Submit</button>
+        </div>
+      ) : (
+       <button
+		  onClick={handleSubmitProposal}
+		  disabled={isOverBudget || !isIdealRatio}
+		  className={isOverBudget || !isIdealRatio ? 'disabled' : ''}
+		>
+		  Submit Budget Proposal
+		</button>
+      )}
+	  
+    </div>
+	  {/* Popup UI */}
+      {showPopup && (
+        <div className="popup">
+          <h2>{Object.keys(allocations)[currentStep]}</h2>
+          <p>{getPopupMessage(Object.keys(allocations)[currentStep])}</p>
+          <button onClick={handleNextPopup}>Next</button>
+        </div>
+      )}
     </div>
   );
 };
